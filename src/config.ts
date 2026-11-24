@@ -7,7 +7,7 @@ export interface AppConfig {
 export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const provider = env.CODING_AGENT_PROVIDER?.trim().toLowerCase() || "echo";
   if (provider !== "echo" && provider !== "deepseek") {
-    throw new Error(`Unsupported provider: ${provider}`);
+    throw new Error("CODING_AGENT_PROVIDER must be echo or deepseek");
   }
 
   return {
