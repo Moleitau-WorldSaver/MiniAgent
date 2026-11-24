@@ -65,8 +65,25 @@
 
 ## 完成说明
 
-- 最终提交：待实现后填写。
-- 测试命令与结果：待实现后分别填写 PR A 的 `npm test`、`npm run build` 和循环退出结果，以及 PR B 的 `npm test`、`npm run build` 和多轮真实 DeepSeek smoke test 结果。
-- 完成证据：PR A 附带一次终端记录，证明连续输入两个问题后分别得到回答，输入 `Q` 或 `q` 后以 0 退出。PR B 附带脱敏的请求方法、请求地址、HTTP 状态、响应模型、响应标识、耗时和回答内容，证明每轮请求都完成了从发送到显示的链路。
-- 已合入目标分支：待远程仓库和目标分支确定后填写。
-- 未验证项及后续 Issue：待确认 API Key、账户额度、网络出口和 Node.js 支持版本。文件编辑、工具调用、跨进程上下文保存和流式输出不属于本切片，另行立项。
+- 实现提交：`2b66e27`，位于 `issue-1` 分支。
+- 测试命令与结果：`npm run build` 通过；`npm test` 通过，12 个测试全部通过；本地 provider 连续输入两个问题后分别输出回答，`Q` 和 `q` 均以退出码 0 结束。
+- 完成证据：本地 fixture 验证 DeepSeek 使用 POST、`/chat/completions`、Bearer 认证、配置模型和当前问题，并验证成功响应、认证失败、非 2xx、超时、无效 JSON 和无效响应；真实 smoke test 脚本为 `scripts/smoke-deepseek.ps1`。
+- 2026-11-24 在本地终端运行 `./scripts/smoke-deepseek.ps1`。CLI 向 `https://api.deepseek.com/chat/completions` 连续发送两次 POST，实际响应模型均为 `deepseek-flash`。两轮均返回 HTTP 200、完整响应字段和非空回答，输入 `Q` 后以退出码 0 结束。
+  - 第 1 轮：响应 ID `4fc2ed5c…`，请求耗时 294 ms。回答「我是由深度求索公司开发的AI助手DeepSeek。」
+  - 第 2 轮：响应 ID `d785c228…`，请求耗时 124 ms。回答「当然，请把问题发给我吧。」
+- 合入状态：`issue-1` 提交至 `integration` 审核，合入待定。
+- 后续范围：文件读写、工具调用、持久化和流式输出另行立项。
+
+## 审查补记（2026-11-24，PR #2）
+
+[PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 的受审代码为 `de83a6471930e7c72c0eadf983480cb975bc907f`。相对 `integration` 的 `d2443e51`，实现提交 `2b66e27` 同时交付 A 与 B。当前整支待修复，A 与 B 还没有独立准入或回滚的提交边界。
+
+- **A → B 的 CLI／provider 契约。** A 保持默认 echo、无需凭据、逐轮串行、空行不请求、`Q/q` 正常退出和 EOF 收尾。Ctrl-C 应在等待输入和等待 provider 时都及时结束；在途工作应收到取消通知，取消后停止回答、诊断和后续已排队请求。先在 A 验证这个行为，再对接 B 及后续 provider。当前受审 CLI 在 Windows 真实终端收到 Ctrl-C 后仍等待在途响应并输出迟到结果。
+- **B 的请求生命周期与诊断。** 本地回环 HTTP 复测中，200 响应头到达后延迟发送响应体，当前请求超过配置的时限仍成功。时限与耗时应覆盖完整响应体，断连、超时、无效 JSON 与不符合结构的有效 JSON 应各自保留稳定类别。向终端和 smoke 记录输出脱敏后的响应标识，保留 HTTP 状态、模型和完整请求耗时。
+- **分批准入和验收。** 提供可独立审查、构建、运行的 A，并统一 README 与 Issue 的入口命令。当前 `npm run start` 使用 `node dist/src/cli.js`，原验收段的 `node dist/cli.js` 在受审版本报 `MODULE_NOT_FOUND`。B 在已验证的 A 上叠加，保留可独立回滚的边界，补齐真实终端取消、回环 HTTP 响应体超时和断连、两轮请求以及脱敏输出断言。开发端已提交的 DeepSeek 云端两轮成功记录继续作为原实现的正向证据，修复后的验收需记录对应 SHA 和复测环境。
+
+## 分拆后的验收（2026-11-24）
+
+- A 在 Windows Node 20.20.2 和 24.19.0 均通过构建及 9 项测试。PowerShell 验证了两轮 echo、空行、`Q/q` 和 EOF。Windows ConPTY 验证了空闲和在途取消。
+- B 在同样的 Node 环境均通过构建及 26 项测试。实际 CLI 子进程与回环 HTTP 验证了两轮序列、401/403、响应体超时和断连、无效响应及脱敏诊断。Windows ConPTY 验证取消后连接关闭且队列停止。PowerShell smoke 脚本完成两轮回环验证。
+- 修复版真实 DeepSeek 云端验收待已授权的 `DEEPSEEK_API_KEY`。A、B 待合入 `integration`。

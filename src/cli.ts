@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import { stdin, stdout, stderr } from "node:process";
 import { pathToFileURL } from "node:url";
 import { createProvider } from "./provider-factory.js";
-import type { Provider } from "./provider.js";
+import { ProviderError, type Provider } from "./provider.js";
 
 export interface CliStreams {
   input: NodeJS.ReadableStream & { isTTY?: boolean };
@@ -45,9 +45,19 @@ export async function runCli(
         const result = await provider.answer(line, signal);
         if (signal.aborted) return 0;
         streams.output.write(`${result.text}\n`);
-      } catch {
+        if (result.diagnostics) {
+          const { method, url, status, model, responseId, elapsedMs } = result.diagnostics;
+          streams.errorOutput.write(
+            `[request] method=${method} url=${url} status=${status} model=${model} response_id=${responseId} elapsed_ms=${elapsedMs} answer_non_empty=true\n`,
+          );
+        }
+      } catch (error) {
         if (signal.aborted) return 0;
-        streams.errorOutput.write("Error [provider_error]: provider request failed\n");
+        if (error instanceof ProviderError) {
+          streams.errorOutput.write(`Error [${error.code}]: ${error.message}\n`);
+        } else {
+          streams.errorOutput.write("Error [provider_error]: provider request failed\n");
+        }
         return 1;
       }
     }
@@ -64,7 +74,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const exitCode = await runCli(createProvider());
     process.exitCode = exitCode;
   } catch (error) {
-    if (error instanceof Error) {
+    if (error instanceof ProviderError) {
+      stderr.write(`Error [${error.code}]: ${error.message}\n`);
+    } else if (error instanceof Error) {
       stderr.write(`Error: ${error.message}\n`);
     }
     process.exitCode = 1;
