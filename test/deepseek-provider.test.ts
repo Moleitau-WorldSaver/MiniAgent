@@ -64,8 +64,8 @@ async function withServer(
 
 const fixtureKey = "fixture-key-do-not-output";
 
-function completion(id: string, text: string): string {
-  return JSON.stringify({ id, model: "test-model", choices: [{ message: { content: text } }] });
+function completion(id: string, text: string, model = "test-model"): string {
+  return JSON.stringify({ id, model, choices: [{ message: { content: text } }] });
 }
 
 async function runDeepSeekCli(endpoint: string, input: string, timeoutMs?: number) {
@@ -278,16 +278,30 @@ test("DeepSeek CLI reports failure timing and known HTTP status without leaking 
     { code: "authentication_failed", expectedStatus: 403, response: { status: 403, body: upstreamBody } },
     { code: "http_error", expectedStatus: 500, response: { status: 500, body: upstreamBody } },
     { code: "invalid_json", expectedStatus: 200, response: { status: 200, body: upstreamBody } },
+    {
+      code: "invalid_response",
+      expectedStatus: 200,
+      response: { status: 200, body: completion(upstreamBody, "answer", "test-model\nsecond-line") },
+    },
     { code: "timeout", expectedStatus: 200, response: { status: 200, body: upstreamBody, bodyDelayMs: 1500 }, timeoutMs: 400 },
     { code: "network_error", expectedStatus: "unavailable", response: { status: 200, body: "", disconnectBeforeHeaders: true } },
   ];
   for (const { code, expectedStatus, response, timeoutMs } of cases) {
     await t.test(`${code} ${expectedStatus}`, async () => {
-      await withServer(() => response, async (endpoint) => {
-        const result = await runDeepSeekCli(endpoint, "hello\n", timeoutMs);
+      const requests: Array<{ method: string | undefined; body: unknown }> = [];
+      await withServer((body, { method }) => {
+        requests.push({ method, body: JSON.parse(body) });
+        return response;
+      }, async (endpoint) => {
+        const result = await runDeepSeekCli(endpoint, "hello\nqueued question\nQ\n", timeoutMs);
+        assert.equal(result.errors.split("\n").length, 2, "expected one diagnostic line");
+        assert.deepEqual(requests, [{
+          method: "POST",
+          body: { model: "test-model", messages: [{ role: "user", content: "hello" }], stream: false },
+        }]);
         assert.equal(result.code, 1);
         assert.equal(result.output, "");
-        assert.match(result.errors, new RegExp(`^Error \\[${code}\\].*status=${expectedStatus} elapsed_ms=\\d+`, "m"));
+        assert.match(result.errors, new RegExp(`^Error \\[${code}\\].*status=${expectedStatus} elapsed_ms=\\d+\n$`));
         assert.doesNotMatch(result.errors, /private-upstream-detail|fixture-key-do-not-output|authorization|bearer/i);
       });
     });

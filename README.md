@@ -28,7 +28,7 @@ $env:CODING_AGENT_PROVIDER = "deepseek"
 node dist/src/cli.js
 ```
 
-`DEEPSEEK_MODEL` 默认使用 `deepseek-flash`。每轮只向 DeepSeek 发送一次请求，非 2xx 状态会结束本轮。请求时限为 30 秒，覆盖响应体读取。成功时在标准错误记录 HTTP 状态、模型、耗时及脱敏后的响应标识。失败时记录稳定的错误类别、耗时及已收到的 HTTP 状态。
+`DEEPSEEK_MODEL` 默认使用 `deepseek-flash`。每轮只向 DeepSeek 发送一次请求，收到非 2xx 状态后当前 CLI 以非零状态码退出，待处理的问题不会发送。可以重新启动 CLI 继续提问。请求时限为 30 秒，覆盖响应体读取。成功时在标准错误用一行记录 HTTP 状态、模型、耗时及脱敏后的响应标识。响应中的模型名含空白或控制字符时，CLI 将其归为 `invalid_response`。失败时记录稳定的错误类别、耗时及已收到的 HTTP 状态。
 
 在已有凭据的 PowerShell 7 会话中运行 `./scripts/smoke-deepseek.ps1` 可以构建并验证两轮真实云端问答。脚本运行结束后会恢复调用方的 provider 选择。日常 `npm.cmd test` 使用回环 HTTP fixture。
 

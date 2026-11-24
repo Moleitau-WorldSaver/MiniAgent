@@ -29,15 +29,16 @@ function readCompletion(body: string) {
   }
 
   const invalid = () =>
-    new ProviderError("invalid_response", "DeepSeek response is missing required fields");
+    new ProviderError("invalid_response", "DeepSeek response has missing or invalid fields");
   if (!isObject(payload)) throw invalid();
 
   const { id, model, choices } = payload;
   const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
   const message = isObject(choice) ? choice.message : undefined;
   const text = isObject(message) ? message.content : undefined;
+  // The model identifier occupies one unquoted field in the request diagnostic.
   if (typeof id !== "string" || !id.trim() ||
-      typeof model !== "string" || !model.trim() ||
+      typeof model !== "string" || !model || /[\s\p{Cc}\p{Cf}]/u.test(model) ||
       typeof text !== "string" || !text.trim()) {
     throw invalid();
   }
