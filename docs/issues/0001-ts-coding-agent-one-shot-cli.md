@@ -65,6 +65,12 @@
 - 在 Windows PowerShell 7.6.9 上验证 B 与本规范的组合。Node 20.20.2 和 24.19.0 均通过 `npm.cmd run build` 和 `npm.cmd test`（各 36/36），实跑中文两问、空行及 `Q/q` 退出 0。组合树相对 B 的变更仅涉及本规范。
 - 真实云端两轮 HTTP 200 的证据对应 `5105530027b87e4a37242744bb48f0639f9feacf`。`9e53325` 仍需两轮真实 DeepSeek smoke。B 通过复审并合入后，回填合并 SHA 并核对 Issue #1 的关闭状态。 [真实请求记录](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4#issuecomment-7121369815)
 
+### 真实云端复审（2026-11-24 15:06，北京时间）
+
+- **准入基线。** `integration` 当前为 `12605ce18ab944290e00130e01795d91f0ebb8f6`，已包含离线 A [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3)。B [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 的审查 head 为 `9e5332573abb6d6867f397315c50b89c5768eacc`，三点共同祖先为 `42df18aece653bb0bf445e0ca0c6b1d9b710dcfe`，差异为 B 的 10 个文件。原整包 #2 仍有合并冲突，分拆交付是后续集成基线。
+- **B 真实云端证据。** 在该精确 head 的 Windows 隔离工作树中，PowerShell 7.6.9 / Node 24.19.0 使用进程环境注入已配置的凭据，运行仓库原版 `./scripts/smoke-deepseek.ps1`。两轮均以 `POST https://api.deepseek.com/chat/completions` 返回 HTTP 200，实际模型均为 `deepseek-flash`，回答非空。两轮耗时 792 / 920 ms，脱敏响应 ID 为 `ea428984…` / `f637ca7c…`。输入 `Q` 后退出 0，调用方的 `echo` provider 设置恢复。上节的云端待验项已完成。
+- **B 本地回归与后续。** Windows Node 20.20.2 和 24.19.0 各通过 `npm.cmd test`（含构建，36/36）。在实际 CLI 子进程的回环 HTTP 测试中，含换行的模型名触发单行 `invalid_response`，首问 HTTP 500 触发 `http_error`。两种场景均退出 1、只发送首问、无回答。本次真实云端验证覆盖成功路径，容器、其他系统终端和真实云端故障尚未覆盖。B 合入 `integration` 后，回填实际合并 SHA 并核对 Issue #1 状态。以后若更改请求、响应校验或 smoke，按新的运行提交分别留存回环回归与两轮真实云端证据。
+
 ## 建议实现顺序
 
 1. 核对 Node.js、TypeScript 编译目标和现有测试入口，记录最新 head。
@@ -87,6 +93,8 @@
 - PR A：交付可独立运行的 TypeScript 循环 CLI、本地 provider、逐轮输出和 `Q/q` 退出；依赖无；测试 `npm test`、`npm run build` 和无网络循环命令。
 - PR B：交付真实 DeepSeek Chat Completions 接入、环境变量读取、逐轮请求-响应链路和 `Q/q` 退出；依赖 PR A 的 CLI 与 provider 接口；测试 `npm test`、`npm run build` 和多轮真实 DeepSeek smoke test。
 - 回滚或开关：删除 CLI 入口或回退对应提交即可；真实模型 smoke test 不作为默认测试，不设置运行时开关。
+
+认领后续任务时，以最新复审所列的运行提交、环境和结果为准。若完成说明仍保留初始占位，A 的合入状态及 B 的验收结果见[真实云端复审](#真实云端复审2026-11-24-1506北京时间)。
 
 ## 完成说明
 
