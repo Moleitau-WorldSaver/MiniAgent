@@ -5,8 +5,8 @@ import { createProvider } from "./provider-factory.js";
 import type { Provider } from "./provider.js";
 
 export interface CliStreams {
-  input: NodeJS.ReadableStream & { isTTY?: boolean };
-  output: NodeJS.WritableStream & { isTTY?: boolean };
+  input: NodeJS.ReadableStream;
+  output: NodeJS.WritableStream;
   errorOutput: NodeJS.WritableStream;
 }
 
@@ -16,8 +16,9 @@ export async function runCli(
 ): Promise<number> {
   const readline = createInterface({
     input: streams.input,
-    output: streams.output,
-    terminal: Boolean(streams.input.isTTY && streams.output.isTTY),
+    // Keep the console in cooked mode so Ctrl-C arrives as a process signal
+    // even while the line iterator has paused stdin for backpressure.
+    terminal: false,
     crlfDelay: Infinity,
   });
   const controller = new AbortController();
@@ -28,7 +29,6 @@ export async function runCli(
     readline.close();
     streams.errorOutput.write("\n已退出。\n");
   };
-  readline.on("SIGINT", interrupt);
   if (streams.input === stdin) process.on("SIGINT", interrupt);
 
   try {
@@ -54,7 +54,6 @@ export async function runCli(
     return 0;
   } finally {
     readline.close();
-    readline.off("SIGINT", interrupt);
     if (streams.input === stdin) process.off("SIGINT", interrupt);
   }
 }

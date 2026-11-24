@@ -1,20 +1,16 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import { runCli } from "../src/cli.js";
 import type { Provider } from "../src/provider.js";
 
-function streams(terminal = false) {
-  const input = Object.assign(new PassThrough(), {
-    isTTY: terminal,
-    setRawMode: (_enabled: boolean) => input,
-  });
+function streams() {
+  const input = new PassThrough();
   let outputText = "";
   let errorText = "";
-  const output = Object.assign(
-    new Writable({ write(chunk, _encoding, callback) { outputText += chunk.toString(); callback(); } }),
-    { isTTY: terminal },
-  );
+  const output = new Writable({ write(chunk, _encoding, callback) { outputText += chunk.toString(); callback(); } });
   const errorOutput = new Writable({ write(chunk, _encoding, callback) { errorText += chunk.toString(); callback(); } });
   return { input, output, errorOutput, read: () => ({ outputText, errorText }) };
 }
@@ -64,46 +60,70 @@ test("CLI finishes buffered questions on EOF", async () => {
   assert.equal(io.read().outputText, "first\nsecond\n");
 });
 
-test("Ctrl-C exits while waiting for input", async () => {
-  const io = streams(true);
-  const result = runCli({ answer: async () => assert.fail("unexpected question") }, io);
-  io.input.end("\x03");
-
-  assert.equal(await result, 0);
-  assert.match(io.read().errorText, /已退出/);
-});
-
-test("Ctrl-C cancels the active turn and suppresses queued turns and late output", async (t) => {
-  for (const outcome of ["answer", "error"]) {
+test("terminal Ctrl-C exits even while input is paused under backpressure", async (t) => {
+  for (const outcome of ["idle", "answer", "error"]) {
     await t.test(outcome, async () => {
-      const io = streams(true);
-      let signal: AbortSignal | undefined;
-      let resolveAnswer!: (result: { text: string }) => void;
-      let rejectAnswer!: (error: Error) => void;
-      const inFlight = new Promise<{ text: string }>((resolve, reject) => {
-        resolveAnswer = resolve;
-        rejectAnswer = reject;
+      const entry = new URL("../src/cli.js", import.meta.url).href;
+      const program = `
+        import { runCli } from ${JSON.stringify(entry)};
+        const outcome = ${JSON.stringify(outcome)};
+        const { stdin, stdout } = process;
+        stdin.isTTY = stdout.isTTY = true;
+        let raw = false;
+        stdin.setRawMode = (enabled) => { raw = enabled; return stdin; };
+        // Model console delivery over a portable pipe: raw mode puts the key
+        // on the input stream, while cooked mode delivers a process signal.
+        function interrupt() {
+          if (raw) {
+            if (!stdin.isPaused()) stdin.emit("data", Buffer.from([3]));
+          } else process.emit("SIGINT");
+        }
+        let calls = 0;
+        let aborted = false;
+        if (outcome === "idle") setImmediate(interrupt);
+        else stdin.once("pause", () => setImmediate(() => {
+          if (!calls) throw new Error("expected a turn in flight");
+          process.stderr.write("input paused\\n");
+          interrupt();
+        }));
+        const code = await runCli({
+          async answer(_question, signal) {
+            calls += 1;
+            await new Promise((resolve, reject) => {
+              signal.addEventListener("abort", () => {
+                aborted = true;
+                if (outcome === "error") reject(new Error("late failure"));
+                else resolve();
+              }, { once: true });
+            });
+            return { text: "late answer" };
+          },
+        });
+        process.stderr.write(JSON.stringify({ code, calls, aborted }) + "\\n");
+        process.exitCode = code;
+      `;
+      const child = spawn(process.execPath, ["--input-type=module", "-e", program], {
+        stdio: "pipe",
+        timeout: 5000,
       });
-      const calls: string[] = [];
-      const result = runCli({
-        answer: (question, turnSignal?: AbortSignal) => {
-          calls.push(question);
-          signal = turnSignal;
-          return inFlight;
-        },
-      }, io);
-      io.input.write("first\rsecond\r");
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.deepEqual(calls, ["first"]);
-      io.input.end("\x03");
-      if (outcome === "answer") resolveAnswer({ text: "late answer" });
-      else rejectAnswer(new Error("late failure"));
+      let output = "";
+      let errors = "";
+      child.stdout.setEncoding("utf8").on("data", (chunk: string) => { output += chunk; });
+      child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+        errors += chunk;
+        if (errors.includes('"aborted":')) child.stdin.destroy();
+      });
+      child.stdin.on("error", () => {}); // The child may close stdin while data is buffered.
+      if (outcome !== "idle") child.stdin.write("first\r\n" + "queued\r\n".repeat(1100));
+      const [code] = await once(child, "close");
 
-      assert.equal(await result, 0);
-      assert.equal(signal?.aborted, true);
-      assert.deepEqual(calls, ["first"]);
-      assert.doesNotMatch(io.read().outputText, /late answer/);
-      assert.doesNotMatch(io.read().errorText, /Error/);
+      assert.equal(code, 0, errors);
+      assert.match(errors, /已退出/);
+      assert.doesNotMatch(output, /late answer/);
+      assert.doesNotMatch(errors, /Error/);
+      const inFlight = outcome !== "idle";
+      if (inFlight) assert.match(errors, /input paused/);
+      assert.match(errors, new RegExp(JSON.stringify({ code: 0, calls: inFlight ? 1 : 0, aborted: inFlight })));
     });
   }
 });
