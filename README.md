@@ -4,7 +4,7 @@
 
 ## 在 Windows 终端运行
 
-需要 Node.js 20 或更高版本。在 PowerShell 中运行以下命令：
+需要 Node.js 20 或更高版本。使用 PowerShell 7（`pwsh -NoProfile`）运行下列命令和中文管道示例。
 
 ```powershell
 npm.cmd ci
@@ -21,7 +21,7 @@ npm.cmd test
 
 ## DeepSeek
 
-先将已授权的 `DEEPSEEK_API_KEY` 注入当前进程环境，再在 PowerShell 中运行：
+先将已授权的 `DEEPSEEK_API_KEY` 注入当前进程环境，再在 PowerShell 7 中运行以下命令。
 
 ```powershell
 $env:CODING_AGENT_PROVIDER = "deepseek"
@@ -30,7 +30,7 @@ node dist/src/cli.js
 
 `DEEPSEEK_MODEL` 默认使用 `deepseek-flash`。每轮只向 DeepSeek 发送一次请求，非 2xx 状态会结束本轮。请求时限为 30 秒，覆盖响应体读取。成功时在标准错误记录 HTTP 状态、模型、耗时及脱敏后的响应标识。失败时记录稳定的错误类别、耗时及已收到的 HTTP 状态。
 
-在已有凭据的 PowerShell 会话中运行 `./scripts/smoke-deepseek.ps1` 可以构建并验证两轮真实云端问答。脚本运行结束后会恢复调用方的 provider 选择。日常 `npm.cmd test` 使用回环 HTTP fixture。
+在已有凭据的 PowerShell 7 会话中运行 `./scripts/smoke-deepseek.ps1` 可以构建并验证两轮真实云端问答。脚本运行结束后会恢复调用方的 provider 选择。日常 `npm.cmd test` 使用回环 HTTP fixture。
 
 文档：
 
