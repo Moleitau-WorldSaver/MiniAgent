@@ -10,6 +10,13 @@ export interface CliStreams {
   errorOutput: NodeJS.WritableStream;
 }
 
+function formatProviderError(error: ProviderError): string {
+  const timing = error.elapsedMs === undefined
+    ? ""
+    : ` status=${error.status ?? "unavailable"} elapsed_ms=${error.elapsedMs}`;
+  return `Error [${error.code}]: ${error.message}${timing}\n`;
+}
+
 export async function runCli(
   provider: Provider,
   streams: CliStreams = { input: stdin, output: stdout, errorOutput: stderr },
@@ -54,7 +61,7 @@ export async function runCli(
       } catch (error) {
         if (signal.aborted) return 0;
         if (error instanceof ProviderError) {
-          streams.errorOutput.write(`Error [${error.code}]: ${error.message}\n`);
+          streams.errorOutput.write(formatProviderError(error));
         } else {
           streams.errorOutput.write("Error [provider_error]: provider request failed\n");
         }
@@ -74,7 +81,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = exitCode;
   } catch (error) {
     if (error instanceof ProviderError) {
-      stderr.write(`Error [${error.code}]: ${error.message}\n`);
+      stderr.write(formatProviderError(error));
     } else if (error instanceof Error) {
       stderr.write(`Error: ${error.message}\n`);
     }

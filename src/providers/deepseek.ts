@@ -20,16 +20,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readCompletion(body: string, status: number) {
+function readCompletion(body: string) {
   let payload: unknown;
   try {
     payload = JSON.parse(body);
   } catch {
-    throw new ProviderError("invalid_json", "DeepSeek returned invalid JSON", status);
+    throw new ProviderError("invalid_json", "DeepSeek returned invalid JSON");
   }
 
   const invalid = () =>
-    new ProviderError("invalid_response", "DeepSeek response is missing required fields", status);
+    new ProviderError("invalid_response", "DeepSeek response is missing required fields");
   if (!isObject(payload)) throw invalid();
 
   const { id, model, choices } = payload;
@@ -68,11 +68,14 @@ export class DeepSeekProvider implements Provider {
     const cancel = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", cancel, { once: true });
     const startedAt = performance.now();
+    const elapsedMs = () => Math.round(performance.now() - startedAt);
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let status: number | undefined;
 
     try {
       const response = await this.fetchImpl(this.endpoint, {
         method: "POST",
+        redirect: "manual",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.options.apiKey}`,
@@ -84,35 +87,37 @@ export class DeepSeekProvider implements Provider {
         }),
         signal: controller.signal,
       });
+      status = response.status;
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
-        if (response.status === 401 || response.status === 403) {
-          throw new ProviderError("authentication_failed", `DeepSeek authentication failed (${response.status})`, response.status);
+        if (status === 401 || status === 403) {
+          throw new ProviderError("authentication_failed", `DeepSeek authentication failed (${status})`);
         }
-        throw new ProviderError("http_error", `DeepSeek returned HTTP ${response.status}`, response.status);
+        throw new ProviderError("http_error", `DeepSeek returned HTTP ${status}`);
       }
 
       const body = await response.text();
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      const { text, model, responseId } = readCompletion(body, response.status);
+      const { text, model, responseId } = readCompletion(body);
       return {
         text,
         diagnostics: {
           method: "POST",
           url: this.endpoint,
-          status: response.status,
+          status,
           model,
           responseId,
-          elapsedMs,
+          elapsedMs: elapsedMs(),
         },
       };
     } catch (error) {
       signal?.throwIfAborted();
-      if (error instanceof ProviderError) throw error;
-      if (controller.signal.aborted) {
-        throw new ProviderError("timeout", "DeepSeek request timed out");
+      if (error instanceof ProviderError) {
+        throw new ProviderError(error.code, error.message, status, elapsedMs());
       }
-      throw new ProviderError("network_error", "DeepSeek request failed");
+      if (controller.signal.aborted) {
+        throw new ProviderError("timeout", "DeepSeek request timed out", status, elapsedMs());
+      }
+      throw new ProviderError("network_error", "DeepSeek request failed", status, elapsedMs());
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", cancel);

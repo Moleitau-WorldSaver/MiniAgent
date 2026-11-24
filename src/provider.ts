@@ -30,6 +30,7 @@ export class ProviderError extends Error {
       | "invalid_response",
     message: string,
     public readonly status?: number,
+    public readonly elapsedMs?: number,
   ) {
     super(message);
     this.name = "ProviderError";

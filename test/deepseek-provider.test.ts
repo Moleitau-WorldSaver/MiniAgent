@@ -13,6 +13,8 @@ interface FixtureResponse {
   delayMs?: number;
   bodyDelayMs?: number;
   disconnect?: boolean;
+  disconnectBeforeHeaders?: boolean;
+  location?: string;
 }
 
 async function withServer(
@@ -24,8 +26,13 @@ async function withServer(
     request.setEncoding("utf8");
     for await (const chunk of request) body += chunk;
     const result = handler(body, request);
+    if (result.disconnectBeforeHeaders) {
+      response.destroy();
+      return;
+    }
     response.statusCode = result.status;
     response.setHeader("content-type", "application/json");
+    if (result.location) response.setHeader("location", result.location);
     if (result.bodyDelayMs) response.flushHeaders();
     if (result.disconnect) response.write(result.body);
 
@@ -61,7 +68,7 @@ function completion(id: string, text: string): string {
   return JSON.stringify({ id, model: "test-model", choices: [{ message: { content: text } }] });
 }
 
-async function runDeepSeekCli(endpoint: string, input: string) {
+async function runDeepSeekCli(endpoint: string, input: string, timeoutMs?: number) {
   // Redirect only the provider's production URL in this child. The fixture still
   // receives a real request through native fetch, and tests cannot call the cloud.
   const redirect = `
@@ -71,6 +78,11 @@ async function runDeepSeekCli(endpoint: string, input: string) {
       if (target.origin !== "https://api.deepseek.com") throw new Error("Unexpected test origin");
       return nativeFetch(new URL(target.pathname + target.search, ${JSON.stringify(endpoint)}), options);
     };
+    if (${JSON.stringify(timeoutMs ?? null)} !== null) {
+      const nativeSetTimeout = globalThis.setTimeout;
+      globalThis.setTimeout = (callback, delay, ...args) =>
+        nativeSetTimeout(callback, delay === 30_000 ? ${JSON.stringify(timeoutMs ?? null)} : delay, ...args);
+    }
   `;
   const entry = fileURLToPath(new URL("../src/cli.js", import.meta.url));
   const child = spawn(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(redirect)}`, entry], {
@@ -238,13 +250,46 @@ test("DeepSeek CLI receives two ordered answers and prints only redacted diagnos
   }
 });
 
-test("DeepSeek CLI reports authentication failures without leaking the response or key", async () => {
-  for (const status of [401, 403]) {
-    await withServer(() => ({ status, body: fixtureKey }), async (endpoint) => {
-      const result = await runDeepSeekCli(endpoint, "hello\n");
-      assert.equal(result.code, 1);
-      assert.equal(result.output, "");
-      assert.equal(result.errors, `Error [authentication_failed]: DeepSeek authentication failed (${status})\n`);
+test("DeepSeek CLI rejects redirects without issuing a second request", async (t) => {
+  for (const status of [302, 307]) {
+    await t.test(String(status), async () => {
+      const requests: string[] = [];
+      await withServer((_body, request) => {
+        requests.push(`${request.method} ${request.url}`);
+        if (request.url === "/redirected") {
+          return { status: 200, body: completion("redirected-id", "unexpected answer") };
+        }
+        return { status, body: "redirect", location: "/redirected" };
+      }, async (endpoint) => {
+        const result = await runDeepSeekCli(endpoint, "hello\n");
+        assert.equal(result.code, 1);
+        assert.equal(result.output, "");
+        assert.deepEqual(requests, ["POST /chat/completions"]);
+        assert.match(result.errors, new RegExp(`^Error \\[http_error\\].*status=${status} elapsed_ms=\\d+`, "m"));
+      });
+    });
+  }
+});
+
+test("DeepSeek CLI reports failure timing and known HTTP status without leaking upstream data", async (t) => {
+  const upstreamBody = "private-upstream-detail";
+  const cases: Array<{ code: string; expectedStatus: number | "unavailable"; response: FixtureResponse; timeoutMs?: number }> = [
+    { code: "authentication_failed", expectedStatus: 401, response: { status: 401, body: upstreamBody } },
+    { code: "authentication_failed", expectedStatus: 403, response: { status: 403, body: upstreamBody } },
+    { code: "http_error", expectedStatus: 500, response: { status: 500, body: upstreamBody } },
+    { code: "invalid_json", expectedStatus: 200, response: { status: 200, body: upstreamBody } },
+    { code: "timeout", expectedStatus: 200, response: { status: 200, body: upstreamBody, bodyDelayMs: 1500 }, timeoutMs: 400 },
+    { code: "network_error", expectedStatus: "unavailable", response: { status: 200, body: "", disconnectBeforeHeaders: true } },
+  ];
+  for (const { code, expectedStatus, response, timeoutMs } of cases) {
+    await t.test(`${code} ${expectedStatus}`, async () => {
+      await withServer(() => response, async (endpoint) => {
+        const result = await runDeepSeekCli(endpoint, "hello\n", timeoutMs);
+        assert.equal(result.code, 1);
+        assert.equal(result.output, "");
+        assert.match(result.errors, new RegExp(`^Error \\[${code}\\].*status=${expectedStatus} elapsed_ms=\\d+`, "m"));
+        assert.doesNotMatch(result.errors, /private-upstream-detail|fixture-key-do-not-output|authorization|bearer/i);
+      });
     });
   }
 });
