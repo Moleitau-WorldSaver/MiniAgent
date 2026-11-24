@@ -70,6 +70,7 @@
 - **准入基线。** `integration` 当前为 `12605ce18ab944290e00130e01795d91f0ebb8f6`，已包含离线 A [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3)。B [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 的审查 head 为 `9e5332573abb6d6867f397315c50b89c5768eacc`，三点共同祖先为 `42df18aece653bb0bf445e0ca0c6b1d9b710dcfe`，差异为 B 的 10 个文件。原整包 #2 仍有合并冲突，分拆交付是后续集成基线。
 - **B 真实云端证据。** 在该精确 head 的 Windows 隔离工作树中，PowerShell 7.6.9 / Node 24.19.0 使用进程环境注入已配置的凭据，运行仓库原版 `./scripts/smoke-deepseek.ps1`。两轮均以 `POST https://api.deepseek.com/chat/completions` 返回 HTTP 200，实际模型均为 `deepseek-flash`，回答非空。两轮耗时 792 / 920 ms，脱敏响应 ID 为 `ea428984…` / `f637ca7c…`。输入 `Q` 后退出 0，调用方的 `echo` provider 设置恢复。上节的云端待验项已完成。
 - **B 本地回归与后续。** Windows Node 20.20.2 和 24.19.0 各通过 `npm.cmd test`（含构建，36/36）。在实际 CLI 子进程的回环 HTTP 测试中，含换行的模型名触发单行 `invalid_response`，首问 HTTP 500 触发 `http_error`。两种场景均退出 1、只发送首问、无回答。本次真实云端验证覆盖成功路径，容器、其他系统终端和真实云端故障尚未覆盖。B 合入 `integration` 后，回填实际合并 SHA 并核对 Issue #1 状态。以后若更改请求、响应校验或 smoke，按新的运行提交分别留存回环回归与两轮真实云端证据。
+- **启动配置的共享错误契约。** B 的正常云端路径已验收，`9e53325` 启动校验仍需修复后才能合入。把同一个假凭据分别赋给 `DEEPSEEK_API_KEY` 和 `CODING_AGENT_PROVIDER`，CLI 会退出 1 并在 stderr 回显该值。给 selector 传入含换行的非法值会产生两行错误。CLI 和后续 provider 的启动校验只应输出配置变量名、允许值与固定的单行错误提示。非法输入原值和凭据均不得输出，配置错误应在发出请求前退出。用实际 CLI 子进程将两种输入纳入 `npm.cmd test`，检查退出码 1、stdout 为空、stderr 单行且不含测试标记，以及零出站请求。真实云端成功记录仍归属 `9e53325`，修复后应按最新运行 SHA 补记验收。
 
 ## 建议实现顺序
 
