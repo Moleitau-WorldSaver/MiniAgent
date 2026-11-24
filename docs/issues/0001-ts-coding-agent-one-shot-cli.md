@@ -65,8 +65,11 @@
 
 ## 完成说明
 
-- 最终提交：实现后由 PR 提交记录填写。
+- 实现提交：`2b66e27`，位于 `issue-1` 分支。
 - 测试命令与结果：`npm run build` 通过；`npm test` 通过，12 个测试全部通过；本地 provider 连续输入两个问题后分别输出回答，`Q` 和 `q` 均以退出码 0 结束。
 - 完成证据：本地 fixture 验证 DeepSeek 使用 POST、`/chat/completions`、Bearer 认证、配置模型和当前问题，并验证成功响应、认证失败、非 2xx、超时、无效 JSON 和无效响应；真实 smoke test 脚本为 `scripts/smoke-deepseek.ps1`。
-- 已合入目标分支：待 PR 合并后填写，当前实现分支为 `issue-1`，目标分支为 `main`。
-- 未验证项及后续 Issue：本次运行环境未提供 `DEEPSEEK_API_KEY`，因此未执行真实云端 smoke test；账户额度和云端网络连通性待安全注入密钥后验证。文件读写、工具调用、持久化和流式输出仍不属于本切片。
+- 2026-11-24 在本地终端运行 `./scripts/smoke-deepseek.ps1`。CLI 向 `https://api.deepseek.com/chat/completions` 连续发送两次 POST，实际响应模型均为 `deepseek-flash`。两轮均返回 HTTP 200、完整响应字段和非空回答，输入 `Q` 后以退出码 0 结束。
+  - 第 1 轮：响应 ID `4fc2ed5c…`，请求耗时 294 ms。回答「我是由深度求索公司开发的AI助手DeepSeek。」
+  - 第 2 轮：响应 ID `d785c228…`，请求耗时 124 ms。回答「当然，请把问题发给我吧。」
+- 合入状态：`issue-1` 提交至 `integration` 审核，合入待定。
+- 后续范围：文件读写、工具调用、持久化和流式输出另行立项。
