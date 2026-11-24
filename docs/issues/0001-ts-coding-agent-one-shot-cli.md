@@ -42,11 +42,12 @@
 
 ## 审查补记（2026-11-24，分拆交付复审）
 
-- **当前基线。** [PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 的 `f273b0cdf7107900891e2e61fcb0c34df8f820d4` 最后一笔只追加文档。整支暂缓，A、B 分别以 [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3) 的 `a79a8540345ec0c4b67ad943f8081d6a1d663599` 和 [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 的 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f` 为复审对象。A 面向 `integration` 的 `d2443e51f6e616ae472fdb4f771ea4f76d8e7b69`，B 的基线就是 A。A 先独立达到验收门槛。A 合入后把 B 指向 `integration`，核对共同祖先、实际 diff 与可独立回滚的提交边界，再审 B。
-- **共享入口与取消。** 构建后执行 `node dist/src/cli.js`。CLI 串行等待每轮回答。EOF 完成已经读到的有效输入，`Q/q` 正常退出。Ctrl-C 应立即停止分发和输出，向在途 provider 传播取消。异步 provider 收到 `AbortSignal` 后应及时结束。验收同时覆盖少量排队、高水位积压、空闲及在途取消。Windows ConPTY 复测中，大量排队使 Ctrl-C 延后，B 使用原生 fetch 的回环用例在观察窗内仍继续发送请求。修复后 B 应验证服务端没有收到后续 POST。
-- **云端选择和请求次数。** 只有本次运行显式选择 DeepSeek 才发送问题。smoke 脚本的临时 provider 和模型配置限于本次运行，成功或失败后调用方原有值和未设置状态都应保留。每条有效输入只发送一次请求，3xx 按非 2xx 处理。回环验收同时断言 HTTP 状态、请求次数和退出码。
-- **失败和成功证据。** 请求时限和耗时覆盖完整响应体。失败记录保留稳定类别、已知 HTTP 状态和耗时，完整正文的 JSON 语法错误与结构错误分别归类。记录中不得包含凭据、认证头、上游错误正文或完整响应 ID。
-- **证据归属。** 审查端在 Windows Node 24.19.0 / 20.20.2 上独立核对 A 9/9、B 26/26 及各自构建，真实云端证据由开发端提供。开发端在 2026-11-24 10:07（北京时间）用 Windows PowerShell 在 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f` 上运行 `./scripts/smoke-deepseek.ps1`，两轮 DeepSeek 均返回 HTTP 200 和非空答案，模型 `deepseek-flash`，完整耗时 791 / 781 ms，脱敏 ID `dd0d9798…` / `99903ce8…`，退出 0。旧记录 `2b66e27` 只对应 PR #2 的原实现。B 若修复改变启动脚本、请求或诊断，补最终 head 的对应 smoke 证据。 [开发端验收](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4)
+- **基线与准入。** [PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 的 `f273b0cdf7107900891e2e61fcb0c34df8f820d4` 保留为整包历史，A、B 的实现同属 `2b66e27`，整支暂缓。交付 A [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3) 在 `42df18aece653bb0bf445e0ca0c6b1d9b710dcfe` 对 `integration` 的 `d2443e51f6e616ae472fdb4f771ea4f76d8e7b69` 独立验收，可进入 `integration`。交付 B [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 在 `5105530027b87e4a37242744bb48f0639f9feacf` 包含 A 的该版提交。A 合入后，B 改指 `integration`，以实际三点 diff 核对只含 B 增量和可独立回滚的边界。更新 B 分支的完成说明，按最终 SHA 记录合入状态、测试和剩余验证项。
+- **共享入口与取消。** 有效问题逐轮串行。空行只提示，`Q/q` 退出，EOF 处理完已读入的有效输入。Ctrl-C 在空闲、在途和输入积压时都应停止分发与输出，并向在途 provider 传播 `AbortSignal`。旧 A `a79a854`、旧 B `3ff4f7c` 的积压失败为历史记录。开发端在上述当前 A/B head 分别用 Windows ConPTY 输入约 1,100 行进行复测。A 仅调用首轮 provider，B 的回环服务只收到首个 POST 且在正文结束前连接关闭。默认自动化取消用例使用管道替身。
+- **PowerShell 启动边界。** 当前中文管道示例和 DeepSeek smoke 在 PowerShell 7.6.9 验证。Windows PowerShell 5.1 默认原生管道会把中文转为问号，B 在 `5105530` 的 smoke 脚本还会在 5.1 解析失败。README 应明确示例与 smoke 的受支持 shell，或补实现并验证 5.1。PowerShell 7 验收命令可从 `pwsh -NoProfile` 会话执行，A 运行 README 的两问管道，B 在进程环境安全注入凭据后运行 `./scripts/smoke-deepseek.ps1`。
+- **云端选择与诊断。** 每次运行显式选择 DeepSeek；本地 echo 维持默认。smoke 的临时设置只在该次调用生效，并恢复调用方原有值或未设置状态。每条有效输入只发送一次 POST，3xx 归为非 2xx，失败直接结束当前进程。读取成功响应的完整正文受同一时限约束，断连、超时、JSON 语法错误与响应结构错误分别分类。请求失败保留稳定类别、耗时和已知 HTTP 状态。凭据、认证头、上游错误正文和完整响应 ID 不进入记录。
+- **当前证据。** 审查端在 Windows 的隔离工作树中执行 `npm.cmd ci`、`npm.cmd run build`、`npm.cmd test`，Node 24.19.0 / 20.20.2 分别通过 A 9/9 和 B 35/35。B 的 HTTP 测试使用实际 CLI 子进程与回环 fixture。审查端以 PowerShell 7.6.9 / Node 24.19.0 在精确 head `5105530027b87e4a37242744bb48f0639f9feacf` 运行原版 smoke，两个 POST 均返回 HTTP 200、实际模型 `deepseek-flash` 和非空回答，耗时 807 / 667 ms，脱敏响应 ID 为 `99f81d39…` / `5398baef…`，`Q` 退出 0，调用方 provider 恢复。真实容器和其他系统终端未验证。
+- **历史证据。** 开发端 10:07（北京时间）的真实 DeepSeek 两轮成功对应 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f`，耗时 791 / 781 ms，脱敏 ID 为 `dd0d9798…` / `99903ce8…`。PR #2 的两轮成功对应 `2b66e27`，由 `de83a64` 记录。若之后改动 smoke、请求或诊断，实现端按新 head 补相应证据。 [开发端验收](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4)
 
 ## 建议实现顺序
 
@@ -59,7 +60,7 @@
 
 ## 验收与故障场景
 
-- 正常产品路径：交付 A 运行 `node dist/cli.js`，输入两个问题并分别看到回答，再输入 `Q` 或 `q` 后进程以 0 退出。交付 B 配置 `DEEPSEEK_API_KEY` 后运行同一入口，每个问题都能看到对应的 DeepSeek 返回，输入 `Q` 或 `q` 后退出。
+- 正常产品路径：交付 A 执行 `npm run build` 后运行 `node dist/src/cli.js`，输入两个问题并分别看到回答，再输入 `Q` 或 `q` 后进程以 0 退出。交付 B 设置 `CODING_AGENT_PROVIDER=deepseek` 和 `DEEPSEEK_API_KEY` 后运行同一入口，每个问题都能看到对应的 DeepSeek 返回，输入 `Q` 或 `q` 后退出。
 - 失败、权限不足、取消或重复操作：空输入不发起请求并给出可读提示；交付 B 遇到 401/403、超时、非 2xx 或无效响应时以非零退出并给出稳定错误类别；收到 Ctrl-C 时退出且不写入密钥或任务文件。
 - 重启／重连／迁移：进程重启后不恢复历史；服务连接断开时当前请求失败并退出，下一次启动可重新请求；不需要迁移脚本。
 - 兼容和回归：交付 A 运行 `npm test` 覆盖循环、输入处理和 `Q/q` 退出；交付 B 继续运行 `npm test` 覆盖 DeepSeek 成功响应、认证失败、超时和无效响应；两个交付都运行 `npm run build`。
