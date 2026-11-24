@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { runCli } from "../src/cli.js";
 import type { Provider } from "../src/provider.js";
 
@@ -58,6 +59,41 @@ test("CLI finishes buffered questions on EOF", async () => {
 
   assert.equal(await result, 0);
   assert.equal(io.read().outputText, "first\nsecond\n");
+});
+
+test("CLI rejects invalid startup configuration before requesting an answer", async (t) => {
+  const fixtureKey = "fixture-key-for-startup-test";
+  const entry = fileURLToPath(new URL("../src/cli.js", import.meta.url));
+  const rejectFetch = `
+    globalThis.fetch = async () => {
+      process.stderr.write("Unexpected fetch\\n");
+      throw new Error("Unexpected fetch");
+    };
+  `;
+  const invalidProvider = "Error: CODING_AGENT_PROVIDER must be echo or deepseek\n";
+  const cases = [
+    { name: "credential entered as provider", provider: fixtureKey, key: fixtureKey, message: invalidProvider },
+    { name: "multiline provider", provider: "invalid\nprovider", key: fixtureKey, message: invalidProvider },
+    { name: "missing DeepSeek key", provider: "deepseek", key: "", message: "Error [missing_api_key]: DEEPSEEK_API_KEY is required\n" },
+  ];
+
+  for (const { name, provider, key, message } of cases) {
+    await t.test(name, () => {
+      const result = spawnSync(process.execPath, [
+        "--import", `data:text/javascript,${encodeURIComponent(rejectFetch)}`, entry,
+      ], {
+        env: { ...process.env, CODING_AGENT_PROVIDER: provider, DEEPSEEK_API_KEY: key },
+        input: "first\nQ\n",
+        encoding: "utf8",
+        timeout: 5000,
+      });
+
+      assert.ifError(result.error);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, message);
+    });
+  }
 });
 
 test("terminal Ctrl-C exits even while input is paused under backpressure", async (t) => {

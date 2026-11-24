@@ -99,8 +99,17 @@
 
 ## 完成说明
 
-- 最终提交：待实现后填写。
-- 测试命令与结果：待实现后分别填写 PR A 的 `npm test`、`npm run build` 和循环退出结果，以及 PR B 的 `npm test`、`npm run build` 和多轮真实 DeepSeek smoke test 结果。
-- 完成证据：PR A 附带一次终端记录，证明连续输入两个问题后分别得到回答，输入 `Q` 或 `q` 后以 0 退出。PR B 附带脱敏的请求方法、请求地址、HTTP 状态、响应模型、响应标识、耗时和回答内容，证明每轮请求都完成了从发送到显示的链路。
-- 已合入目标分支：待远程仓库和目标分支确定后填写。
-- 未验证项及后续 Issue：待确认 API Key、账户额度、网络出口和 Node.js 支持版本。文件编辑、工具调用、跨进程上下文保存和流式输出不属于本切片，另行立项。
+- **A，离线 CLI。** [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3) 的 `42df18aece653bb0bf445e0ca0c6b1d9b710dcfe` 已通过合并提交 `12605ce18ab944290e00130e01795d91f0ebb8f6` 进入 `integration`。Windows Node 20.20.2 和 24.19.0 均通过 `npm.cmd run build` 和 `npm.cmd test`（9/9）。终端验证了两问、空行、`Q/q`、EOF 和 Windows ConPTY 积压取消。
+- **B，DeepSeek。** [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 待在 `integration` 复审合入。诊断修复后，Windows Node 20.20.2 和 24.19.0 均通过 `npm.cmd run build` 和 `npm.cmd test`（36/36）。回环 HTTP 覆盖两轮有序 POST、302/307、认证失败、正文超时、断连、响应校验和脱敏诊断。模型名包含空白或控制字符时，CLI 以 `invalid_response` 退出 1，单行记录 HTTP 状态和耗时。首轮 HTTP 500 同样以 1 退出，待处理的问题不会发送。两种失败均无回答。此前 Windows ConPTY 验证积压时只发出首轮 POST，Ctrl-C 中止连接并停止后续轮次。 [诊断复审](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4#issuecomment-7121966648)
+- **B 启动配置回归。** 非法 `CODING_AGENT_PROVIDER` 只提示变量名和允许值 `echo`、`deepseek`。真实 CLI 子进程测试覆盖误填假凭据、含换行的非法值和缺少 DeepSeek 密钥。三个场景均退出 1、无 stdout、只有一行诊断且发出零请求。修复提交与测试结果见 [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4)。
+- **B 真实云端。** 最近一次审查用 Windows PowerShell 7.6.9 与 Node 24.19.0，在 `9e5332573abb6d6867f397315c50b89c5768eacc` 上运行原版 `./scripts/smoke-deepseek.ps1`。两轮 POST 均返回 HTTP 200、`deepseek-flash` 和非空回答，耗时 792 / 920 ms，脱敏 ID 为 `ea428984…` / `f637ca7c…`。`Q` 退出 0，调用方 provider 恢复。启动诊断修复后的运行提交待补真实云端 smoke。 [PR #4 复审记录](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4#issuecomment-7124712661)
+- **历史验收。** PR #2 的 12 项测试和真实两轮记录归属原实现 `2b66e27`（记录提交 `de83a6471930e7c72c0eadf983480cb975bc907f`）。B 的早期 26 项测试和 791 / 781 ms 两轮云端结果归属 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f`。
+- **剩余验证。** B 合入后回填合并提交并核对 Issue #1 关闭状态。Windows 验收范围见 README，其他系统的终端和真实云端故障尚未验证。文件读写、工具调用、持久化和流式输出另行立项。
+
+## 审查补记（2026-11-24，PR #2）
+
+[PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 的受审代码为 `de83a6471930e7c72c0eadf983480cb975bc907f`。相对 `integration` 的 `d2443e51`，实现提交 `2b66e27` 同时交付 A 与 B。当前整支待修复，A 与 B 还没有独立准入或回滚的提交边界。
+
+- **A → B 的 CLI／provider 契约。** A 保持默认 echo、无需凭据、逐轮串行、空行不请求、`Q/q` 正常退出和 EOF 收尾。Ctrl-C 应在等待输入和等待 provider 时都及时结束；在途工作应收到取消通知，取消后停止回答、诊断和后续已排队请求。先在 A 验证这个行为，再对接 B 及后续 provider。当前受审 CLI 在 Windows 真实终端收到 Ctrl-C 后仍等待在途响应并输出迟到结果。
+- **B 的请求生命周期与诊断。** 本地回环 HTTP 复测中，200 响应头到达后延迟发送响应体，当前请求超过配置的时限仍成功。时限与耗时应覆盖完整响应体，断连、超时、无效 JSON 与不符合结构的有效 JSON 应各自保留稳定类别。向终端和 smoke 记录输出脱敏后的响应标识，保留 HTTP 状态、模型和完整请求耗时。
+- **分批准入和验收。** 提供可独立审查、构建、运行的 A，并统一 README 与 Issue 的入口命令。当前 `npm run start` 使用 `node dist/src/cli.js`，原验收段的 `node dist/cli.js` 在受审版本报 `MODULE_NOT_FOUND`。B 在已验证的 A 上叠加，保留可独立回滚的边界，补齐真实终端取消、回环 HTTP 响应体超时和断连、两轮请求以及脱敏输出断言。开发端已提交的 DeepSeek 云端两轮成功记录继续作为原实现的正向证据，修复后的验收需记录对应 SHA 和复测环境。
