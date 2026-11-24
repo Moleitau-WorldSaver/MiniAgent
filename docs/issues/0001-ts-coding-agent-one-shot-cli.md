@@ -49,6 +49,16 @@
 - **当前证据。** 审查端在 Windows 的隔离工作树中执行 `npm.cmd ci`、`npm.cmd run build`、`npm.cmd test`，Node 24.19.0 / 20.20.2 分别通过 A 9/9 和 B 35/35。B 的 HTTP 测试使用实际 CLI 子进程与回环 fixture。审查端以 PowerShell 7.6.9 / Node 24.19.0 在精确 head `5105530027b87e4a37242744bb48f0639f9feacf` 运行原版 smoke，两个 POST 均返回 HTTP 200、实际模型 `deepseek-flash` 和非空回答，耗时 807 / 667 ms，脱敏响应 ID 为 `99f81d39…` / `5398baef…`，`Q` 退出 0，调用方 provider 恢复。真实容器和其他系统终端未验证。
 - **历史证据。** 开发端 10:07（北京时间）的真实 DeepSeek 两轮成功对应 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f`，耗时 791 / 781 ms，脱敏 ID 为 `dd0d9798…` / `99903ce8…`。PR #2 的两轮成功对应 `2b66e27`，由 `de83a64` 记录。若之后改动 smoke、请求或诊断，实现端按新 head 补相应证据。 [开发端验收](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4)
 
+
+## 审查补记（2026-11-24 12:20，北京时间）
+
+本节记录最新准入状态与对应 SHA。上一节保留拆分复审时的证据。
+
+- **A 已合入。** [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3) 的 `42df18aece653bb0bf445e0ca0c6b1d9b710dcfe` 经 `12605ce18ab944290e00130e01795d91f0ebb8f6` 进入 `integration`。Windows 隔离工作树上，Node 20.20.2 和 24.19.0 均通过 9 项测试，PowerShell 7.6.9 下中文两轮、空行和 `Q/q` 验收通过。
+- **B 已改指 `integration`，等待诊断修复。** [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) head 为 `06861344ac620c297a91a64331922946e6681d04`，目标端为上述 A 合并提交，三点共同祖先为 A 的 head。实际差异含 10 个文件。临时索引反向应用 B 差异后恢复 `integration` 的树。README 已明确中文管道与 smoke 使用 PowerShell 7。当前 head 在 Windows Node 20.20.2 和 24.19.0 各通过 35 项自动化测试；完整 CLI HTTP 回环与真实云端分别记录。真实两轮成功属于 `5105530027b87e4a37242744bb48f0639f9feacf`，`0686134` 相对它只改 README 和本规范。 [当前复审](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4#issuecomment-7121966648)
+- **共享诊断契约。** 每次请求的诊断必须保有可识别的单行边界。外部模型、响应标识等元数据通过单行安全编码，或按字段契约拒绝异常值。继续保留 HTTP 状态、耗时与脱敏约束。当前 B 在回环 HTTP 200 中收到含换行的 `model` 后退出 0，并把一条成功诊断拆成两行；该复现来自合成响应。在实际 CLI 回环 fixture 加入含换行模型名，运行 `npm.cmd test`，断言只发一次 POST，输出一条结构完整的脱敏记录，或者以 `invalid_response`、HTTP 200、耗时和退出 1 拒绝。运行代码修复后，在新 SHA 复测既有异常分支并补真实 smoke。 [复现与验收](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4#issuecomment-7121966648)
+- **整包历史。** [PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 相对当前 `integration` 的三点差异仍有 16 个文件，合并预览有 6 个 add/add 冲突。A 已合入，后续实现以分拆 B 为审查对象。B 合入后，在完成说明回填合并 SHA 并核对 Issue #1 状态。 [当前冲突记录](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2#issuecomment-7121967423)
+
 ## 建议实现顺序
 
 1. 核对 Node.js、TypeScript 编译目标和现有测试入口，记录最新 head。
