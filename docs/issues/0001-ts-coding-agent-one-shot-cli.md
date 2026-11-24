@@ -40,6 +40,14 @@
 - 必须复用或保持不变的身份、存储、权限和 API：密钥只从 `DEEPSEEK_API_KEY` 读取，不写入文件、日志或输出；请求使用 DeepSeek 的 Bearer 认证和 Chat Completions 响应结构。
 - 旧数据、旧客户端和正在运行任务如何处理：当前无旧数据、旧客户端或长任务；进程结束即丢弃本次循环和响应。
 
+## 审查补记（2026-11-24，分拆交付复审）
+
+- **当前基线。** [PR #2](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/2) 的 `f273b0cdf7107900891e2e61fcb0c34df8f820d4` 最后一笔只追加文档。整支暂缓，A、B 分别以 [PR #3](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/3) 的 `a79a8540345ec0c4b67ad943f8081d6a1d663599` 和 [PR #4](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4) 的 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f` 为复审对象。A 面向 `integration` 的 `d2443e51f6e616ae472fdb4f771ea4f76d8e7b69`，B 的基线就是 A。A 先独立达到验收门槛。A 合入后把 B 指向 `integration`，核对共同祖先、实际 diff 与可独立回滚的提交边界，再审 B。
+- **共享入口与取消。** 构建后执行 `node dist/src/cli.js`。CLI 串行等待每轮回答。EOF 完成已经读到的有效输入，`Q/q` 正常退出。Ctrl-C 应立即停止分发和输出，向在途 provider 传播取消。异步 provider 收到 `AbortSignal` 后应及时结束。验收同时覆盖少量排队、高水位积压、空闲及在途取消。Windows ConPTY 复测中，大量排队使 Ctrl-C 延后，B 使用原生 fetch 的回环用例在观察窗内仍继续发送请求。修复后 B 应验证服务端没有收到后续 POST。
+- **云端选择和请求次数。** 只有本次运行显式选择 DeepSeek 才发送问题。smoke 脚本的临时 provider 和模型配置限于本次运行，成功或失败后调用方原有值和未设置状态都应保留。每条有效输入只发送一次请求，3xx 按非 2xx 处理。回环验收同时断言 HTTP 状态、请求次数和退出码。
+- **失败和成功证据。** 请求时限和耗时覆盖完整响应体。失败记录保留稳定类别、已知 HTTP 状态和耗时，完整正文的 JSON 语法错误与结构错误分别归类。记录中不得包含凭据、认证头、上游错误正文或完整响应 ID。
+- **证据归属。** 审查端在 Windows Node 24.19.0 / 20.20.2 上独立核对 A 9/9、B 26/26 及各自构建，真实云端证据由开发端提供。开发端在 2026-11-24 10:07（北京时间）用 Windows PowerShell 在 `3ff4f7c889b783a7a3ca676ed5ce5b19d783b76f` 上运行 `./scripts/smoke-deepseek.ps1`，两轮 DeepSeek 均返回 HTTP 200 和非空答案，模型 `deepseek-flash`，完整耗时 791 / 781 ms，脱敏 ID `dd0d9798…` / `99903ce8…`，退出 0。旧记录 `2b66e27` 只对应 PR #2 的原实现。B 若修复改变启动脚本、请求或诊断，补最终 head 的对应 smoke 证据。 [开发端验收](https://github.com/Moleitau-WorldSaver/MiniAgent/pull/4)
+
 ## 建议实现顺序
 
 1. 核对 Node.js、TypeScript 编译目标和现有测试入口，记录最新 head。
